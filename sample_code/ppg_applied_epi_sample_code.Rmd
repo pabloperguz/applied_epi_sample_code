@@ -1,0 +1,199 @@
+---
+title: "Sample code towards application as instructor in Applied Epi"
+author: "Pablo N Perez-Guzman"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Sample code towards application as instructor in Applied Epi}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+---
+
+## Objectives
+
+In this sample code I will present an original practical-style Rmd that could be used as part of a workshop on basic and advanced applications of R to analyse epidemiological data. I am writing this as if directed to attendees to an Applied Epi workshop, in support to my application to enter the rota of Applied Epi instructors. 
+
+I will demonstrate the application of:
+
+* Basic R functions for data manipulation and visualisation
+* The use of `tidyverse` and other R packages for data manipulation, advanced visualisation and regression analysis
+
+Many thanks in advance for your consideration.
+
+## Practical starts here
+
+Please note that you will need to ensure you have installed the following R packages: `readxl`, `ggplot2`, `tidyr`, `dplyr`, `pacman`, `rstudioapi`, `dplyr`, `jtools`, `ggplot2` and `patchwork`. You can uncomment (remove the `#` marc) the following line of code and substitute `name_of_package` for the packages you are missing:
+
+```{r}
+# install.packages("name_of_the_package")
+```
+
+## Part 1: Reading in and exploring the data with base R
+
+```{r include = FALSE}
+dir <- dirname(rstudioapi::getActiveDocumentContext()$path)
+setwd(dir)
+pacman::p_load(ggplot2, dplyr, tidyr)
+show_ans <- TRUE
+# devtools::load_all()
+```
+
+### 1.1 Loading the data
+
+```{r}
+data <- readxl::read_xlsx("covid_example_data.xlsx")
+```
+
+### 1.2 Getting to know the data
+
+Data for epidemiological analysis is usually in the form of a `matrix`, `data.frame` or `tibble`, where each row is an entry and each column a variable (e.g. sex, age, ethnicity, etc.). Think of these objects as "R versions" of an Excel spreadsheet.
+
+Using base R commands, more properly known as functions, there are many ways to familiarise yourself with and extract information from a data set. 
+
+**Qu. 1.1** What type of data is this, how many entries are there and what variables were recorded?
+
+```{r include = show_ans}
+head(data) # show the first few rows of the data set
+```
+`r if(show_ans){"etc."}`
+
+```{r eval = show_ans}
+dim(data) # show the number of rows and columns
+```
+
+```{r eval = show_ans}
+colnames(data) # show the name of the variables (columns)
+nrow(data) - length(unique(data$PID)) # count duplicated PID numbers
+```
+```{r eval = show_ans}
+summary(data) # overview of each variable type and summary statistics
+```
+
+<span style="color:blue">`r if(show_ans){"So it seems this is a patient-level linelist of 82,087 (82,101 - 14 duplicated PID numbers) COVID-19 cases, for whom 31 variables of interest were recorded. This included a unique patient ID number, age, ethnicity, information on their symptoms, hospitalisation, outcome (dead or not), among others."}`</span>
+
+**Qu. 1.2** Create a subset data set of only patients that died of COVID-19.
+
+```{r eval = show_ans}
+unique(data$died_covid) # show how was the variable `died_covid` recorded
+```
+
+```{r include = show_ans, echo = FALSE}
+died <- data[data$died_covid == "Yes" & !is.na(data$died_covid), ]
+# returns an object of only patients with a value of "Yes".
+# Note the use of `==` and `!=` to specify conditions, and `&` to add them.
+```
+`r if(show_ans){"etc."}`
+
+
+### 1.3 Descriptive analysis of the data
+
+Many functions are available for the analysis of vectors (e.g. individual variables) and matrices (e.g. whole or subset of the data set). For example, 
+
+**Qu. 1.3** What proportion of patients died of confirmed COVID-19?
+
+```{r include = show_ans}
+nrow(died) / nrow(data)
+```
+`r if(show_ans){"etc."}`
+
+
+**Qu. 1.4** What is the mean and 95%CI of the time from symptom onset to death?
+
+```{r include = show_ans}
+# There is no time_to_death variable, we'll create it using the dates of
+# symptom onset and death. Working with dates in R can be challenging,
+# especially when dates are misrecorded (e.g. different formats, typos, etc.).
+# This will calculate the difference in days.
+died$time_to_death <- as.numeric(as.Date(died$died_dt_FALSE) - as.Date(died$sym_startdt_FALSE))
+
+# count instances with NA as a result of missing dates
+sum(is.na(died$time_to_death)) 
+```
+```{r include = show_ans}
+# get the empiric mean and 95%CI
+c(mean(died$time_to_death, na.rm = TRUE), 
+  quantile(died$time_to_death, c(0.025, 0.975), na.rm = TRUE)) 
+```
+`r if(show_ans){"etc."}`
+
+**Qu. 1.5** Plot the distribution of time from symptom onset to death.
+
+```{r include = show_ans, fig.width = 6}
+hist(died$time_to_death)
+```
+
+<span style="color:blue">`r if(show_ans){"So, we have 1,338 patients in the data (1.6%) recorded as having died of COVID-19. Note there was either a missed date of death or date of symptom onset for 620 of these! The empiric (frequentist) mean time from symptom onset to death among those with both dates recorded was of 70 days (95%CI 1 - 203). However, the histogram shows a distribution that is severely affected by outliers! So the mean and 95%CI will not be accurate ways to describe this delay distrubtion."}`</span>
+
+
+## Part 2: Advanced data visualisation and statistical analysis
+
+There are a lot of base R packages and functions to undertake more advanced statistical analysis and produce publication-quality plots. We will work with the `tidyverse` family of R packages in this section. In your own time, review the documentation for the `lm` and `glm` functions, which we will use to fit linear models.
+
+```{r, include = FALSE}
+pacman::p_load(ggplot2, dplyr, jtools, patchwork)
+```
+
+**Qu. 2.1** What is the relation between age and time to death? Assume an operational definition of *COVID-19 related death* if occurring within 90 days of the date of symptom onset.
+
+```{r include = show_ans, fig.width = 6}
+died <- died %>%
+  filter(!is.na(time_to_death),
+         time_to_death <= 90)
+
+# Histogram of both variables and scattered plot of age vs time_to_death 
+hist_age <- ggplot(died) + geom_histogram(aes(case_age)) +
+  geom_vline(xintercept = mean(died$case_age), col = "red")
+hist_ttd <- ggplot(died) + geom_histogram(aes(time_to_death)) +
+  geom_vline(xintercept = mean(died$time_to_death), col = "red")
+scpl_age_ttd <- ggplot(died, aes(case_age, time_to_death)) +
+  geom_point()
+
+# Arrange into a multi-panel figure for easy visualisation
+(hist_age + hist_ttd) / scpl_age_ttd
+```
+
+<span style="color:blue">`r if(show_ans){"We are concentrating on cases with both known dates in who the death occurred within 90 days of symptom onset. When you do this, you should question whether there are systematic recording errors biasing the data (e.g. dates not recorded in less severe cases or viceversa). For this excercise, we'll assume this was not the case and analyse some interesting trends in the data that have been made evident by filtering it. Note both the age and time from onset to death seem to have a clear non-normal distribution. Most individuals were aged 75+ and died within 24 days of symptom onser (vertical red lines show mean, which is sensitive to deviations from normal distribution). However, there does not seem to be a strong correlation between age and time to death, at least not at face value."}`</span>
+
+**Qu. 2.2** Fit a linear regression model with `case_age` as the dependent and `time_to_death` as the independet variable. Explain your results.
+
+```{r include = show_ans, echo = TRUE, results = "hide"}
+mod_age_ttd <- glm(time_to_death ~ case_age, data = died)
+```
+
+```{r include = show_ans}
+summ(mod_age_ttd, digits = 2)
+```
+
+<span style="color:blue">`r if(show_ans){"This generalised linear model shows no statistical correlation between age and time to death (-0.02 days per unit increase in years of age, p value = 0.68). However, the underlying assumption of a linear regression model is that both the dependent and independent variable are normally (or at least near) distributed. There is a number of ways in which we could deal with this, from non-parametric tests to linear regression on log-transformed variables, or sub-group analyses."}`</span>
+
+**Qu. 2.3** Investigate this association by age category younger vs older than 75 alone and adjusting by race/ethnicity.
+
+```{r include = show_ans, echo = TRUE, results = "hide"}
+died <- died %>%
+  mutate(age_cat =
+           case_when(case_age < 75 ~ "<75",
+                     case_age >= 75 ~ "75+"),
+         ethnicity =
+           case_when(case_eth == "HISPANIC/LATINO" ~ tolower(case_eth),
+                     TRUE ~ case_when(
+                       case_race %in% c("BLACK", "WHITE", "ASIAN") ~ tolower(case_race),
+                       TRUE ~ "other")))
+died$ethnicity <- relevel(as.factor(died$ethnicity), ref = "white")
+mod_age_cat <- glm(time_to_death ~ age_cat, data = died)
+mod_age_cat_latin <- glm(time_to_death ~ age_cat + ethnicity, data = died)
+```
+```{r include = show_ans}
+export_summs(mod_age_cat, mod_age_cat_latin,
+             error_format = "{p.value} [{conf.low}, {conf.high}]")
+```
+```{r include = show_ans, fig.width = 6}
+ggplot(died, aes(case_age, time_to_death, col = age_cat)) +
+  geom_point() +
+  facet_wrap(~ethnicity)
+```
+
+<span style="color:blue">`r if(show_ans){"Something interesting happened here. In the initial model, there was no association between age (numeric) and time to death. However, the adjusted model shows that the time to death for those of Hispanic/Latin ethnicity was on average a 7.25 days longer (p = 0.03, 95%CI 0.67 - 13.84 days), compared to the reference group (White), after adjusting for their age category, which can also be seen in the scattered plots. Now, this might not be clinically relevant at all and/or be down to sampling bias / sample-size differences for each category (as suggest by the wide 95%CI), but it's still interesting! More importantly, the aim of this section of the practical was to demonstrate how to conduct unadjusted and adjusted regression models and present their outputs succinctly as *report-ready* tables and graphics."}`</span>
+
